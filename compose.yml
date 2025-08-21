@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # Caddy Web Server
   caddy:
     image: caddy:latest
     restart: unless-stopped
@@ -10,18 +7,32 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
-      - ./lenovo-ai/dist:/srv/frontend # Mount the built frontend files
       - caddy_data:/data
       - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
 
-  # Backend API Server
-  backend-api:
+  frontend:
+    build:
+      context: ./frontend
+      # Pass variables from the .env file as build arguments to the Dockerfile
+      args:
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+    environment:
+      - VITE_API_BASE_URL=https://api.resumatch.tnsvc.xyz
+    restart: unless-stopped
+    
+
+  backend:
     build: ./backend
     restart: unless-stopped
+    # Docker Compose automatically reads the .env file in the same directory
+    # and makes these variables available to the container.
     environment:
-      # Pass all your backend .env variables here
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_URL=${VITE_SUPABASE_URL} # Use the same public URL
+      - SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY} # Use the same public key
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - BRAVE_API_KEY=${BRAVE_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
@@ -29,14 +40,13 @@ services:
     depends_on:
       - rabbitmq
 
-  # Backend Worker
-  backend-worker:
+  worker:
     build: ./backend
     restart: unless-stopped
-    command: node worker.js # Override the default command to run the worker
+    command: node worker.js
     environment:
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_URL=${VITE_SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - BRAVE_API_KEY=${BRAVE_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
@@ -44,12 +54,9 @@ services:
     depends_on:
       - rabbitmq
 
-  # RabbitMQ Message Broker
   rabbitmq:
     image: rabbitmq:3-management
     restart: unless-stopped
-    ports:
-      - "15672:15672" # Management UI
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 

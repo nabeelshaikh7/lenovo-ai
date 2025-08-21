@@ -11,6 +11,7 @@ const amqp = require('amqplib');
 const authMiddleware = require('./authMiddleware');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8000; // Use port from .env or default to 8000
 
 // Rate limiting configuration

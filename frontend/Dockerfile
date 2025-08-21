@@ -1,16 +1,20 @@
-# Stage 1: Build the React application
-FROM node:20-slim AS build
+# Use a Node.js runtime as the base image
+FROM node:20-slim
 
+# Set the working directory inside the container
 WORKDIR /app
+
+# Copy package.json and package-lock.json first
 COPY package*.json ./
-RUN npm install
-COPY . .
-# Make sure to update the .env file with the production API URL
-RUN echo "VITE_API_BASE_URL=https://api.resumatch.tnsvc.xyz" > .env
-RUN npm run build
 
-# Stage 2: This stage is empty because Caddy will serve the files directly.
-# We just needed Stage 1 to build the static files into the /app/dist directory.
-FROM alpine:latest
-WORKDIR /app
-COPY --from=build /app/dist .
+# Install all dependencies (including devDependencies)
+RUN npm install
+
+# Copy the rest of your application code into the container
+COPY . .
+
+# Expose the default Vite development port
+EXPOSE 5173
+
+# The command to start the development server
+CMD HOST=0.0.0.0 npm run dev -- --host 0.0.0.0

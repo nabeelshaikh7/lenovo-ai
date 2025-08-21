@@ -1,17 +1,10 @@
 # API Domain: api.resumatch.tnsvc.xyz
-# This block tells Caddy to reverse proxy requests to our backend service
 api.resumatch.tnsvc.xyz {
-    # Reverse proxy to the backend container on port 8000
-    reverse_proxy backend-api:8000
+    reverse_proxy backend:8000
 }
 
 # Frontend Domain: resumatch.tnsvc.xyz
-# This block tells Caddy to serve the static React files
 resumatch.tnsvc.xyz {
-    # Set the root directory to where our frontend files are
-    root * /srv/frontend
-    # Serve the static files
-    file_server
-    # Fallback for client-side routing (e.g., /dashboard, /resume-builder)
-    try_files {path} /index.html
+    # Update the port from 4173 to 5173
+    reverse_proxy frontend:5173
 }
