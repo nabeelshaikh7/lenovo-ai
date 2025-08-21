@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Caddy Web Server
+  caddy:
+    image: caddy:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./lenovo-ai/dist:/srv/frontend # Mount the built frontend files
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # Backend API Server
+  backend-api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      # Pass all your backend .env variables here
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - BRAVE_API_KEY=${BRAVE_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - RABBITMQ_URL=amqp://rabbitmq
+    depends_on:
+      - rabbitmq
+
+  # Backend Worker
+  backend-worker:
+    build: ./backend
+    restart: unless-stopped
+    command: node worker.js # Override the default command to run the worker
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - BRAVE_API_KEY=${BRAVE_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - RABBITMQ_URL=amqp://rabbitmq
+    depends_on:
+      - rabbitmq
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    ports:
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+volumes:
+  caddy_data:
+  caddy_config:
+  rabbitmq_data:
