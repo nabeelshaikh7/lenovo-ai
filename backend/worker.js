@@ -40,7 +40,7 @@ async function searchForJobLinks(jobName, jobLocation, jobType) {
     const response = await axios.get(braveSearchUrl, {
       params: {
         q: searchQuery,
-        count: 20, // Get more results to filter from
+        count: 20,
         country: 'us'
       },
       headers: {
@@ -52,28 +52,30 @@ async function searchForJobLinks(jobName, jobLocation, jobType) {
 
     // Extract URLs from search results
     const searchResults = response.data.web?.results || [];
-    
-    // Filter and return top 10 relevant URLs
-    const relevantUrls = searchResults
-      .filter(result => {
-        const url = result.url?.toLowerCase() || '';
-        const title = result.title?.toLowerCase() || '';
-        
-        // Filter for job-related domains and content
-        const jobKeywords = ['indeed', 'linkedin', 'glassdoor', 'monster', 'careerbuilder', 'ziprecruiter', 'simplyhired', 'dice', 'angel', 'stackoverflow', 'remote', 'job', 'career', 'position', 'opening'];
-        
-        return jobKeywords.some(keyword => 
-          url.includes(keyword) || title.includes(keyword)
-        );
-      })
-      .slice(0, 10) // Get top 10
-      .map(result => ({
-        url: result.url,
-        title: result.title,
-        description: result.description
-      }));
 
-    return relevantUrls;
+    // Map, sanitize, and de-duplicate by domain to encourage diversity
+    const seenDomains = new Set();
+    const urls = [];
+    for (const result of searchResults) {
+      const url = result.url;
+      if (!url) continue;
+      try {
+        const { hostname } = new URL(url);
+        const domain = hostname.replace(/^www\./, '').toLowerCase();
+        if (seenDomains.has(domain)) continue;
+        seenDomains.add(domain);
+        urls.push({
+          url,
+          title: result.title || domain,
+          description: result.description || ''
+        });
+      } catch (_) {
+        // Ignore invalid URLs
+      }
+      if (urls.length >= 30) break; // cap to top 30 diverse domains
+    }
+
+    return urls;
     
   } catch (error) {
     console.error('Error searching for job links:', error.response?.data || error.message);
@@ -339,7 +341,6 @@ async function saveJobToDatabase(jobData, userId) {
         job_location: jobData.location || 'Unknown',
         job_type: jobData.type || 'Unknown',
         company_name: jobData.company || 'Unknown',
-        scraped_at: new Date().toISOString(),
         ai_suggestions: jobData.aiSuggestions || null,
         search_query: jobData.searchQuery || null
       });
@@ -378,19 +379,27 @@ async function processJobSearch(jobData) {
       console.warn('Could not fetch resume data:', error.message);
     }
 
-    // Step 3: Process each job link (scrape and save)
+    // Step 3: Process links with unique-domain retry loop
     const processedJobs = [];
-    const maxScrapes = Math.min(5, jobLinks.length); // Process up to 5 jobs
-
-    for (let i = 0; i < maxScrapes; i++) {
+    const seenDomains = new Set();
+    let attempts = 0;
+    const maxAttempts = 20; // unique-domain attempts
+    for (const link of jobLinks) {
+      if (attempts >= maxAttempts || processedJobs.length >= 5) break;
+      let domain;
       try {
-        console.log(`Processing job ${i + 1}/${maxScrapes}: ${jobLinks[i].url}`);
-        
-        // Scrape job description
-        const scrapedData = await scrapeJobDescription(jobLinks[i].url);
-        
+        domain = new URL(link.url).hostname.replace(/^www\./, '').toLowerCase();
+      } catch (_) {
+        continue;
+      }
+      if (seenDomains.has(domain)) continue;
+      seenDomains.add(domain);
+      attempts += 1;
+
+      try {
+        console.log(`Processing attempt ${attempts}/${maxAttempts}: ${link.url}`);
+        const scrapedData = await scrapeJobDescription(link.url);
         if (scrapedData.title && scrapedData.description) {
-          // Get AI suggestions if resume data is available
           let aiSuggestions = null;
           if (resumeData) {
             try {
@@ -407,27 +416,24 @@ async function processJobSearch(jobData) {
             }
           }
 
-          // Prepare job data for database
           const jobDataForDB = {
             title: scrapedData.title,
             description: scrapedData.description,
-            url: jobLinks[i].url,
+            url: link.url,
             location: jobLocation,
             type: jobType,
-            company: jobLinks[i].title.split(' at ')[1] || 'Unknown',
+            company: (link.title && link.title.includes(' at ')) ? link.title.split(' at ')[1] : 'Unknown',
             aiSuggestions: aiSuggestions,
             searchQuery: `${jobName} ${jobType} jobs ${jobLocation}`
           };
 
-          // Save to database
           await saveJobToDatabase(jobDataForDB, userId);
           processedJobs.push(jobDataForDB);
-          
           console.log(`Successfully processed and saved job: ${scrapedData.title}`);
         }
       } catch (error) {
-        console.error(`Failed to process job ${i + 1}:`, error.message);
-        // Continue with other jobs even if one fails
+        console.error(`Failed to process ${link.url}:`, error.message);
+        // continue to next unique domain
       }
     }
 
